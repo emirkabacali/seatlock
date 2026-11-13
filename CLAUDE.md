@@ -1,0 +1,129 @@
+# SeatLock — Project Instructions for Claude Code
+
+> Personal, machine-specific notes live in `CLAUDE.local.md` (git-ignored).
+
+## What this project is
+
+SeatLock is a portfolio-grade **event ticket booking REST API**. Its core promise:
+**a seat can never be sold twice, even under heavy concurrent traffic.**
+The concurrency story (locking, seat holds, idempotency) is the heart of the project,
+not an afterthought.
+
+Repository: https://github.com/emirkabacali/seatlock (public, MIT license)
+
+## Working rules
+
+1. This is a learning project: work in small steps, explain the reasoning behind each change,
+   and run / test after each meaningful step.
+2. Everything that goes to GitHub is **in English and professional**: code, comments,
+   commit messages, PR titles/descriptions, README, docs.
+3. Never invent "production-ready" claims. The README must describe only what actually works.
+
+## Git workflow
+
+- `main` is always working. Each phase (or feature) = its own branch:
+  `feat/phase-1-skeleton`, `feat/auth-jwt`, `feat/booking-locking`, etc.
+- **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `ci:`.
+  Imperative mood, lowercase after the prefix: `feat: add seat hold endpoint`.
+- One logical change per commit. Show `git diff` / explain before committing.
+- Open a Pull Request with `gh pr create` for each branch (English title + description
+  with a short summary and a "How to test" section), then merge with `gh pr merge --squash`.
+
+## Tech stack & architecture decisions
+
+- Java 17, Spring Boot 3.x (Web, Data JPA, Validation, Security), Maven (via Maven Wrapper)
+- PostgreSQL (in Docker via `docker-compose.yml`), **Flyway** for migrations
+  (`spring.jpa.hibernate.ddl-auto=validate`, never `update`)
+- Redis (Docker) for temporary seat holds with TTL
+- Springdoc OpenAPI (Swagger UI)
+- Testing: JUnit 5, Mockito, Spring Boot Test, **Testcontainers** (real PostgreSQL/Redis in tests)
+- Layered architecture: `controller` → `service` → `repository` → `entity`, plus `dto`, `exception`, `config`, `security`
+- Package root: `com.emirkabacali.seatlock`
+- DTOs for all requests/responses; entities are never exposed directly
+- Global error handling with `@RestControllerAdvice`, consistent JSON error body
+- **No secrets in the repo**: DB/JWT secrets come from environment variables or a
+  git-ignored `.env`; commit a `.env.example` instead
+- Lombok: avoid for now (explicit constructors/getters for learning purposes); may be revisited later
+
+## Domain model (initial design — refine together)
+
+- **User**: id, email (unique), passwordHash, role (USER / ADMIN), createdAt
+- **Venue**: id, name, city, address
+- **Event**: id, venue, name, description, startsAt, status (DRAFT / ON_SALE / CANCELLED / FINISHED)
+- **Seat**: id, event, section, row, number, price, status (AVAILABLE / HELD / BOOKED), `@Version`
+  (unique constraint on event + section + row + number)
+- **Booking**: id, user, event, seats, totalPrice,
+  status (PENDING → CONFIRMED | EXPIRED | CANCELLED), expiresAt, idempotencyKey (unique), createdAt
+- **Payment** (simulated): id, booking, amount, status (SUCCEEDED / FAILED), idempotencyKey
+
+## Draft API
+
+- `POST /api/v1/auth/register`, `POST /api/v1/auth/login` → JWT
+- Venues (ADMIN write, public read): `/api/v1/venues`
+- Events (ADMIN write, public read): `/api/v1/events`, `/api/v1/events/{id}/seats`
+- Bookings (USER): `POST /api/v1/bookings` (hold seats), `GET /api/v1/bookings/me`,
+  `POST /api/v1/bookings/{id}/pay` (requires `Idempotency-Key` header),
+  `POST /api/v1/bookings/{id}/cancel`
+
+## Progress so far
+
+### Phase 0 — Setup & Git basics
+- [x] Toolchain installed and verified (Git, Java 17, Docker Desktop on WSL 2, `gh`)
+- [x] Repo created on GitHub with README, Java `.gitignore`, MIT `LICENSE`; cloned locally
+- [x] README replaced with the project overview (`docs: add project overview and planned features`)
+- [x] `CLAUDE.md` added to the repo; personal notes split into git-ignored `CLAUDE.local.md`
+- [ ] **NEXT:** end-of-phase check questions, then start Phase 1
+
+## Remaining roadmap
+
+### Phase 1 — Skeleton + database
+- Generate Spring Boot project (start.spring.io settings or equivalent) into the repo root
+- `docker-compose.yml` with PostgreSQL (+ named volume), `.env.example`
+- Flyway set up, first migration `V1__init.sql`
+- App starts, connects to DB, `/actuator/health` returns UP
+- Explain: Spring Boot auto-configuration, `application.yml`, profiles, Docker volumes
+- Note: the current `.gitignore` ignores `*.jar`; add an exception for
+  `.mvn/wrapper/maven-wrapper.jar` when the Maven Wrapper is added
+
+### Phase 2 — Venue / Event / Seat CRUD
+- Entities, repositories, services, controllers, DTOs, Bean Validation
+- Bulk seat generation for an event (e.g. sections × rows × seats)
+- Global exception handling (404, 409, 400 with field errors)
+- Unit tests (service layer, Mockito) + first integration test
+- Swagger UI working
+
+### Phase 3 — Security
+- Spring Security + JWT (register/login, password hashing with BCrypt)
+- Role-based access: ADMIN manages venues/events, USER books
+- Tests for protected endpoints (401 / 403 cases)
+
+### Phase 4 — Booking & concurrency (the core)
+- Implement a **naive** booking first
+- Write a test that fires N concurrent requests for the same seat (e.g. `ExecutorService`
+  + `CountDownLatch`) and **show the double booking happening**
+- Fix it: optimistic locking (`@Version`) and compare with pessimistic locking
+  (`@Lock(PESSIMISTIC_WRITE)` / `SELECT ... FOR UPDATE`); explain trade-offs
+- Test proves exactly one booking succeeds, others get 409
+
+### Phase 5 — Redis seat holds
+- Redis in docker-compose; hold seats with TTL (e.g. 10 min) when booking starts
+- Expired holds release seats automatically (TTL + scheduled cleanup job for DB state)
+- Booking status PENDING → EXPIRED
+
+### Phase 6 — Idempotent payment simulation
+- `Idempotency-Key` header; same key → same response, no double charge
+- Simulated payment success/failure; CONFIRMED on success
+
+### Phase 7 — Production polish
+- Testcontainers for all integration tests
+- Multi-stage `Dockerfile`; whole stack runs with `docker compose up`
+- GitHub Actions CI: build + test on every push/PR, status badge in README
+- Professional README: what it is, architecture diagram, how concurrency is handled,
+  how to run, API overview, test strategy
+- Optional extras: rate limiting, structured logging, pagination, metrics (Actuator/Prometheus)
+
+## Definition of done for each phase
+
+- Code compiles, all tests pass (`.\mvnw.cmd test`)
+- Merged to `main` via PR
+- README updated if behaviour changed

@@ -126,11 +126,18 @@ Repository: https://github.com/emirkabacali/seatlock (public, MIT license)
       `BookingExpiryService` with `FOR UPDATE SKIP LOCKED`; `Booking.expire()` releases only HELD seats
 - [x] Verified manually: hold expired after 5 s → EXPIRED + seat AVAILABLE; booking works with Redis stopped
 
-## Remaining roadmap
-
 ### Phase 6 — Idempotent payment simulation
-- `Idempotency-Key` header; same key → same response, no double charge
-- Simulated payment success/failure; CONFIRMED on success
+- [x] `payments` (V6): unique `(user_id, idempotency_key)`, SHA-256 `request_hash`, partial unique index
+      `(booking_id) WHERE status = 'SUCCEEDED'`
+- [x] `PaymentService.pay`: lock booking (`findByIdAndUserIdForUpdate`) → key lookup (replay / 422 on mismatch) →
+      PENDING + not expired checks → `SimulatedPaymentGateway` (`pm_card_declined`, `pm_card_insufficient_funds` fail)
+      → SUCCEEDED confirms booking (seats BOOKED) and releases Redis holds `afterCommit`; FAILED keeps PENDING
+- [x] `POST /bookings/{id}/pay` returns 201 + `Idempotent-Replayed` header; missing header → 400
+- [x] Bug found by tests: Windows `Instant.now()` has 100 ns precision, PostgreSQL stores µs → replayed responses
+      differed. All persisted timestamps are now truncated to microseconds
+- [x] `PaymentConcurrencyIntegrationTest` (same key ×10, different keys ×10) + `PaymentApiIntegrationTest`
+
+## Remaining roadmap
 
 ### Phase 7 — Production polish
 - Testcontainers for all integration tests

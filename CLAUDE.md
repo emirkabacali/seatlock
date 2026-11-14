@@ -115,12 +115,18 @@ Repository: https://github.com/emirkabacali/seatlock (public, MIT license)
       other users' bookings return 404; max 10 seats per booking; `@ConfigurationPropertiesScan` on the app
 - [x] Test fixtures via `support/TestData` (`@TestComponent`, imported per test class)
 
-## Remaining roadmap
-
 ### Phase 5 — Redis seat holds
-- Redis in docker-compose; hold seats with TTL (e.g. 10 min) when booking starts
-- Expired holds release seats automatically (TTL + scheduled cleanup job for DB state)
-- Booking status PENDING → EXPIRED
+- [x] Redis 7 in docker-compose (port 6379) and Testcontainers
+- [x] `SeatHoldService`: atomic all-or-nothing Lua acquire (`SET PX` per seat, key
+      `seatlock:hold:{event:ID}:seat:ID`), token-checked release; Redis down → `UNAVAILABLE` → DB-only fallback
+- [x] `BookingService` (orchestrator, no tx) → Redis hold → `BookingWriter` (tx, DB locking); release on failure
+      and after cancel. Concurrency tests target `BookingWriter` directly (DB guarantee without Redis)
+- [x] `bookings.hold_token` (V5)
+- [x] `BookingExpiryJob` (`@Scheduled`, 30 s, disable with `seatlock.booking.expiry-job.enabled=false`) →
+      `BookingExpiryService` with `FOR UPDATE SKIP LOCKED`; `Booking.expire()` releases only HELD seats
+- [x] Verified manually: hold expired after 5 s → EXPIRED + seat AVAILABLE; booking works with Redis stopped
+
+## Remaining roadmap
 
 ### Phase 6 — Idempotent payment simulation
 - `Idempotency-Key` header; same key → same response, no double charge

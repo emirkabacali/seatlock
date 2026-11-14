@@ -58,6 +58,10 @@ public class Booking {
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
+	/** Owner token of the seat holds in Redis (null if the booking was created without Redis). */
+	@Column(name = "hold_token", length = 36)
+	private String holdToken;
+
 	@Version
 	@Column(nullable = false)
 	private long version;
@@ -67,12 +71,36 @@ public class Booking {
 	}
 
 	public Booking(User user, Event event, List<Seat> seats, Instant expiresAt) {
+		this(user, event, seats, expiresAt, null);
+	}
+
+	public Booking(User user, Event event, List<Seat> seats, Instant expiresAt, String holdToken) {
 		this.user = user;
 		this.event = event;
 		this.seats = new ArrayList<>(seats);
 		this.totalPrice = seats.stream().map(Seat::getPrice).reduce(BigDecimal.ZERO, BigDecimal::add);
 		this.status = BookingStatus.PENDING;
 		this.expiresAt = expiresAt;
+		this.holdToken = holdToken;
+	}
+
+	/** Marks a PENDING booking whose hold time has passed as EXPIRED and releases its seats. */
+	public void expire() {
+		requirePending("expired");
+		releaseHeldSeats();
+		this.status = BookingStatus.EXPIRED;
+	}
+
+	/**
+	 * Releases only seats that are still HELD, so one inconsistent seat cannot make a cancel or
+	 * the expiry job fail forever.
+	 */
+	private void releaseHeldSeats() {
+		seats.stream().filter(seat -> seat.getStatus() == SeatStatus.HELD).forEach(Seat::release);
+	}
+
+	public boolean isExpiredAt(Instant now) {
+		return !now.isBefore(expiresAt);
 	}
 
 	@PrePersist
@@ -83,7 +111,7 @@ public class Booking {
 	/** Cancels a PENDING booking and releases its seats. */
 	public void cancel() {
 		requirePending("cancelled");
-		seats.forEach(Seat::release);
+		releaseHeldSeats();
 		this.status = BookingStatus.CANCELLED;
 	}
 
@@ -127,6 +155,10 @@ public class Booking {
 
 	public Instant getCreatedAt() {
 		return createdAt;
+	}
+
+	public String getHoldToken() {
+		return holdToken;
 	}
 
 }

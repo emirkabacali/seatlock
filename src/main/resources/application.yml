@@ -25,6 +25,10 @@ spring:
     web:
       pageable:
         max-page-size: 100
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -46,6 +50,11 @@ seatlock:
     # OPTIMISTIC (@Version) or PESSIMISTIC (SELECT ... FOR UPDATE). NAIVE is unsafe, for demonstration only.
     locking-strategy: ${BOOKING_LOCKING_STRATEGY:OPTIMISTIC}
     max-seats-per-booking: 10
+    expiry-job:
+      # Marks PENDING bookings whose hold has expired as EXPIRED and releases their seats.
+      enabled: true
+      interval: ${BOOKING_EXPIRY_INTERVAL:PT30S}
+      batch-size: 100
 
 management:
   endpoints:

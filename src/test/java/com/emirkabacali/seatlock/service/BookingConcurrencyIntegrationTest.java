@@ -41,7 +41,7 @@ class BookingConcurrencyIntegrationTest extends AbstractIntegrationTest {
 	private static final Set<BookingStatus> ACTIVE = Set.of(BookingStatus.PENDING, BookingStatus.CONFIRMED);
 
 	@Autowired
-	private BookingService bookingService;
+	private BookingWriter bookingWriter;
 
 	@Autowired
 	private BookingRepository bookingRepository;
@@ -138,7 +138,7 @@ class BookingConcurrencyIntegrationTest extends AbstractIntegrationTest {
 					ready.countDown();
 					start.await();
 					try {
-						bookingService.create(userId, request, strategy);
+						bookingWriter.create(userId, request, strategy, null);
 						return Result.SUCCESS;
 					}
 					catch (ConflictException ex) {

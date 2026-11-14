@@ -1,8 +1,8 @@
 # SeatLock
 
-> **Status: Work in progress.** Venue/event/seat management, JWT authentication and
-> concurrency-safe seat booking are implemented and tested. Hold expiry and payments are still
-> planned — see the [roadmap](#roadmap) for what is actually implemented.
+> **Status: Work in progress.** Venue/event/seat management, JWT authentication,
+> concurrency-safe seat booking and Redis seat holds with expiry are implemented and tested.
+> Payments are still planned — see the [roadmap](#roadmap) for what is actually implemented.
 
 SeatLock is an event ticket booking REST API built with Spring Boot. Its core goal is simple
 to state and hard to get right:
@@ -46,6 +46,30 @@ that reaches the database before the first commit sees the seat as available.)
 Further tests cover overlapping multi-seat requests (`{1,2}`, `{2,3}`, … — no seat ever ends up
 in two bookings) and the same race over HTTP (exactly one `201`, all others `409`).
 
+### Seat holds in Redis
+
+Before the database step, a booking request tries to hold all requested seats in Redis
+(`SeatHoldService`): one key per seat, owned by a random hold token, expiring after the hold
+duration (10 minutes by default). A Lua script makes this all-or-nothing and atomic. If any
+seat is already held, the request is rejected with `409` **without opening a database
+transaction**, which keeps load off PostgreSQL when many users hit the same seats.
+
+Redis is an optimization, not the source of truth:
+
+- If the database step fails, the Redis holds are released again.
+- Cancelling a booking releases its holds immediately (only keys owned by its token).
+- If Redis is unreachable, booking falls back to database locking only (correct, but each
+  request waits for the Redis timeout of 2 s first).
+
+### Hold expiry
+
+Redis forgets expired holds by itself, but the database must be updated too. A scheduled job
+(`BookingExpiryJob`, every 30 s) marks overdue `PENDING` bookings as `EXPIRED` and releases
+their seats. It selects bookings with `FOR UPDATE SKIP LOCKED`, so rows that are being changed
+by another transaction — or by the same job on another application instance — are skipped
+instead of waited for. Between the end of a hold and the next job run (≤ 30 s), the seat is
+still `HELD` in the database and new bookings for it get `409`.
+
 **Trade-offs.** Optimistic locking holds no database locks and rejects losers immediately,
 which suits short transactions and moderate contention. Pessimistic locking serializes access
 to hot rows, which avoids wasted work under heavy contention but holds row locks and database
@@ -87,7 +111,7 @@ connections while others wait. The strategy is configurable via `BOOKING_LOCKING
 # 1. Create your local configuration and set JWT_SECRET (at least 32 bytes)
 cp .env.example .env
 
-# 2. Start PostgreSQL (exposed on host port 5433)
+# 2. Start PostgreSQL (host port 5433) and Redis (host port 6379)
 docker compose up -d
 
 # 3. Run the application (Windows: .\mvnw.cmd spring-boot:run)
@@ -108,8 +132,8 @@ first startup.
 ./mvnw test
 ```
 
-Integration tests use [Testcontainers](https://testcontainers.com/) to start a real PostgreSQL
-instance in Docker, so Docker must be running.
+Integration tests use [Testcontainers](https://testcontainers.com/) to start real PostgreSQL
+and Redis instances in Docker, so Docker must be running.
 
 ## API
 
@@ -190,7 +214,7 @@ Validation errors list every invalid field:
 - [x] Venue / event / seat CRUD with validation and error handling
 - [x] JWT authentication and role-based access
 - [x] Booking with concurrency control (optimistic vs. pessimistic locking)
-- [ ] Redis seat holds with expiration
+- [x] Redis seat holds with expiration
 - [ ] Idempotent payment simulation
 - [ ] Testcontainers, Dockerfile, CI pipeline, full documentation
 

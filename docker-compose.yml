@@ -1,3 +1,5 @@
+# Full stack:            docker compose up -d --build
+# Infrastructure only:   docker compose up -d postgres redis   (run the app with ./mvnw spring-boot:run)
 services:
   postgres:
     image: postgres:17-alpine
@@ -27,6 +29,29 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  app:
+    build: .
+    image: seatlock:local
+    container_name: seatlock-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Inside the Compose network the services are reached by name on their container ports.
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-seatlock}
+      DB_USERNAME: ${POSTGRES_USER:-seatlock}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-seatlock}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (see .env.example)}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      BOOKING_LOCKING_STRATEGY: ${BOOKING_LOCKING_STRATEGY:-OPTIMISTIC}
+    ports:
+      - "${APP_PORT:-8080}:8080"
 
 volumes:
   postgres-data:

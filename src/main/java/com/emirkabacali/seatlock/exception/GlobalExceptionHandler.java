@@ -4,6 +4,8 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -64,6 +66,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	@ExceptionHandler(AccessDeniedException.class)
 	ProblemDetail handleAccessDenied(AccessDeniedException ex) {
 		return problem(HttpStatus.FORBIDDEN, "Forbidden", "You do not have permission to perform this action");
+	}
+
+	/** A concurrent transaction changed or locked the same rows first. */
+	@ExceptionHandler({ OptimisticLockingFailureException.class, PessimisticLockingFailureException.class })
+	ProblemDetail handleConcurrentModification(RuntimeException ex) {
+		log.info("Concurrent modification: {}", ex.getMessage());
+		return problem(HttpStatus.CONFLICT, "Conflict", "The resource was modified concurrently, please retry");
 	}
 
 	/** Last line of defence: a database constraint rejected the change (e.g. a unique key). */

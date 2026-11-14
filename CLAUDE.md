@@ -104,15 +104,18 @@ Repository: https://github.com/emirkabacali/seatlock (public, MIT license)
 - [x] Tests: real-token `AuthSecurityIntegrationTest`; `asAdmin()` / `asUser(id)` mock-JWT helpers in `AbstractIntegrationTest`
 - [x] Injectable `Clock` bean (`TimeConfig`) for time-dependent code
 
-## Remaining roadmap
-
 ### Phase 4 — Booking & concurrency (the core)
-- Implement a **naive** booking first
-- Write a test that fires N concurrent requests for the same seat (e.g. `ExecutorService`
-  + `CountDownLatch`) and **show the double booking happening**
-- Fix it: optimistic locking (`@Version`) and compare with pessimistic locking
-  (`@Lock(PESSIMISTIC_WRITE)` / `SELECT ... FOR UPDATE`); explain trade-offs
-- Test proves exactly one booking succeeds, others get 409
+- [x] `bookings` + `booking_seats` (V4); `Booking` has `@Version`; seats go AVAILABLE → HELD on booking
+- [x] `SeatReserver` with three strategies (`LockingStrategy`): NAIVE (bulk update bypassing `@Version`,
+      demo only, logs a warning), OPTIMISTIC (default, explicit flush → 409), PESSIMISTIC (`findForUpdate`, id order)
+- [x] `BookingConcurrencyIntegrationTest`: 30 threads + `CountDownLatch`; NAIVE produced 10 bookings for one
+      seat (= Hikari pool size), OPTIMISTIC/PESSIMISTIC exactly 1 success + 29 conflicts; overlapping multi-seat test
+- [x] HTTP race test: exactly one 201, the rest 409
+- [x] Endpoints: `POST /bookings`, `GET /bookings/me`, `GET /bookings/{id}`, `POST /bookings/{id}/cancel`;
+      other users' bookings return 404; max 10 seats per booking; `@ConfigurationPropertiesScan` on the app
+- [x] Test fixtures via `support/TestData` (`@TestComponent`, imported per test class)
+
+## Remaining roadmap
 
 ### Phase 5 — Redis seat holds
 - Redis in docker-compose; hold seats with TTL (e.g. 10 min) when booking starts

@@ -17,7 +17,9 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 @SpringBootTest(properties = {
 		"seatlock.security.jwt.secret=test-secret-that-is-long-enough-for-hs256-signing",
 		"seatlock.security.admin.email=admin@test.local",
-		"seatlock.security.admin.password=admin-password" })
+		"seatlock.security.admin.password=admin-password",
+		// Tests trigger expiry explicitly instead of waiting for the scheduler.
+		"seatlock.booking.expiry-job.enabled=false" })
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 public abstract class AbstractIntegrationTest {

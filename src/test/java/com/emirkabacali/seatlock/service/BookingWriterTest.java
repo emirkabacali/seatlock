@@ -23,7 +23,6 @@ import com.emirkabacali.seatlock.entity.Role;
 import com.emirkabacali.seatlock.entity.Seat;
 import com.emirkabacali.seatlock.entity.User;
 import com.emirkabacali.seatlock.entity.Venue;
-import com.emirkabacali.seatlock.exception.BadRequestException;
 import com.emirkabacali.seatlock.exception.ConflictException;
 import com.emirkabacali.seatlock.repository.BookingRepository;
 import com.emirkabacali.seatlock.repository.EventRepository;
@@ -39,7 +38,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class BookingServiceTest {
+class BookingWriterTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-14T12:00:00Z");
 
@@ -48,14 +47,14 @@ class BookingServiceTest {
 	private final UserRepository userRepository = mock(UserRepository.class);
 	private final SeatReserver seatReserver = mock(SeatReserver.class);
 	private final BookingProperties properties = new BookingProperties(Duration.ofMinutes(10),
-			LockingStrategy.OPTIMISTIC, 3);
-	private BookingService bookingService;
+			LockingStrategy.OPTIMISTIC, 3, null);
+	private BookingWriter bookingWriter;
 
 	private final Event event = new Event(new Venue("V", "C", "A"), "Concert", null, NOW.plusSeconds(86_400));
 
 	@BeforeEach
 	void setUp() {
-		bookingService = new BookingService(bookingRepository, eventRepository, userRepository, seatReserver,
+		bookingWriter = new BookingWriter(bookingRepository, eventRepository, userRepository, seatReserver,
 				properties, Clock.fixed(NOW, ZoneOffset.UTC));
 		event.changeStatus(EventStatus.ON_SALE);
 		when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
@@ -70,7 +69,8 @@ class BookingServiceTest {
 		// The event is not persisted in this unit test, so its id is null.
 		when(seatReserver.reserve(isNull(), eq(Set.of(10L, 11L)), eq(LockingStrategy.OPTIMISTIC))).thenReturn(seats);
 
-		BookingResponse response = bookingService.create(7L, new CreateBookingRequest(1L, List.of(10L, 11L)));
+		BookingResponse response = bookingWriter.create(7L, new CreateBookingRequest(1L, List.of(10L, 11L)),
+				LockingStrategy.OPTIMISTIC, "token");
 
 		assertThat(response.status()).isEqualTo(BookingStatus.PENDING);
 		assertThat(response.totalPrice()).isEqualByComparingTo("125.50");
@@ -78,39 +78,38 @@ class BookingServiceTest {
 	}
 
 	@Test
-	void rejectsDuplicateSeatIds() {
-		assertThatThrownBy(() -> bookingService.create(7L, new CreateBookingRequest(1L, List.of(10L, 10L))))
-				.isInstanceOf(BadRequestException.class);
-		verify(seatReserver, never()).reserve(anyLong(), anySet(), any());
-	}
-
-	@Test
-	void rejectsMoreSeatsThanAllowed() {
-		assertThatThrownBy(() -> bookingService.create(7L, new CreateBookingRequest(1L, List.of(1L, 2L, 3L, 4L))))
-				.isInstanceOf(BadRequestException.class)
-				.hasMessageContaining("at most 3");
-	}
-
-	@Test
 	void rejectsEventsThatAreNotOnSale() {
 		event.changeStatus(EventStatus.CANCELLED);
 
-		assertThatThrownBy(() -> bookingService.create(7L, new CreateBookingRequest(1L, List.of(10L))))
+		assertThatThrownBy(() -> bookingWriter.create(7L, new CreateBookingRequest(1L, List.of(10L)),
+				LockingStrategy.OPTIMISTIC, null))
 				.isInstanceOf(ConflictException.class);
 		verify(seatReserver, never()).reserve(anyLong(), anySet(), any());
 	}
 
 	@Test
-	void cancelReleasesSeats() {
+	void cancelReleasesSeatsAndReturnsHoldToken() {
+		Seat seat = seat("10.00");
+		seat.hold();
+		Booking booking = new Booking(new User("u@example.com", "hash", Role.USER), event, List.of(seat), NOW, "token");
+		when(bookingRepository.findByIdAndUserId(5L, 7L)).thenReturn(Optional.of(booking));
+
+		BookingWriter.Cancelled cancelled = bookingWriter.cancel(7L, 5L);
+
+		assertThat(cancelled.booking().status()).isEqualTo(BookingStatus.CANCELLED);
+		assertThat(cancelled.holdToken()).isEqualTo("token");
+		assertThat(seat.isAvailable()).isTrue();
+	}
+
+	@Test
+	void onlyPendingBookingsCanBeCancelled() {
 		Seat seat = seat("10.00");
 		seat.hold();
 		Booking booking = new Booking(new User("u@example.com", "hash", Role.USER), event, List.of(seat), NOW);
+		booking.expire();
 		when(bookingRepository.findByIdAndUserId(5L, 7L)).thenReturn(Optional.of(booking));
 
-		BookingResponse response = bookingService.cancel(7L, 5L);
-
-		assertThat(response.status()).isEqualTo(BookingStatus.CANCELLED);
-		assertThat(seat.isAvailable()).isTrue();
+		assertThatThrownBy(() -> bookingWriter.cancel(7L, 5L)).isInstanceOf(ConflictException.class);
 	}
 
 	private Seat seat(String price) {

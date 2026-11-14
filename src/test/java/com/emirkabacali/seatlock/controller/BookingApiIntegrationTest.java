@@ -66,6 +66,10 @@ class BookingApiIntegrationTest extends AbstractIntegrationTest {
 
 		mockMvc.perform(post("/api/v1/bookings/{id}/cancel", bookingId).with(asUser(userId)))
 				.andExpect(status().isConflict());
+
+		// Cancelling released the Redis holds too, so another user can book the seats immediately.
+		long otherUser = testData.users(1).get(0);
+		book(otherUser, event.eventId(), seats.get(0), seats.get(1)).andExpect(status().isCreated());
 	}
 
 	@Test
@@ -77,7 +81,8 @@ class BookingApiIntegrationTest extends AbstractIntegrationTest {
 		book(users.get(0), event.eventId(), seat).andExpect(status().isCreated());
 		book(users.get(1), event.eventId(), seat, event.seatIds().get(1))
 				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.detail").value("Seats not available: [" + seat + "]"));
+				// Rejected by the Redis hold before reaching the database
+				.andExpect(jsonPath("$.detail").value("One or more seats are currently held by another booking"));
 
 		// The failed booking must not have held the other seat either (all or nothing).
 		mockMvc.perform(get("/api/v1/events/{id}/seats", event.eventId()).param("status", "AVAILABLE"))

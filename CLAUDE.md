@@ -137,15 +137,19 @@ Repository: https://github.com/emirkabacali/seatlock (public, MIT license)
       differed. All persisted timestamps are now truncated to microseconds
 - [x] `PaymentConcurrencyIntegrationTest` (same key ×10, different keys ×10) + `PaymentApiIntegrationTest`
 
-## Remaining roadmap
-
 ### Phase 7 — Production polish
-- Testcontainers for all integration tests
-- Multi-stage `Dockerfile`; whole stack runs with `docker compose up`
-- GitHub Actions CI: build + test on every push/PR, status badge in README
-- Professional README: what it is, architecture diagram, how concurrency is handled,
-  how to run, API overview, test strategy
-- Optional extras: rate limiting, structured logging, pagination, metrics (Actuator/Prometheus)
+- [x] Testcontainers for all integration tests (PostgreSQL + Redis, shared context via `AbstractIntegrationTest`)
+- [x] Multi-stage `Dockerfile` (JDK build → JRE runtime, Spring Boot layers, non-root user, healthcheck);
+      `.dockerignore` excludes `.env`, `learning/`, `target/`
+- [x] `docker compose up -d --build` runs app + PostgreSQL + Redis; `docker compose up -d postgres redis` for local dev
+- [x] GitHub Actions `ci.yml`: `./mvnw -B verify` + Docker image build on push to main and on PRs; badge in README
+- [x] README rewritten: highlights, mermaid architecture + booking sequence diagrams, configuration table,
+      test strategy, limitations
+
+## Possible next steps (not planned yet)
+- Rate limiting, structured logging, metrics (Actuator/Prometheus)
+- Circuit breaker around Redis; refresh tokens / token revocation
+- Real payment provider integration outside the DB transaction
 
 ## Definition of done for each phase
 

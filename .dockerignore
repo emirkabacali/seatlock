@@ -1,0 +1,12 @@
+# Keep the build context small and never bake secrets into the image.
+.git
+.github
+.idea
+.vscode
+target
+learning
+.env
+*.md
+!README.md
+docker-compose.yml
+Dockerfile

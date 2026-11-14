@@ -1,7 +1,7 @@
 # SeatLock
 
-> **Status: Work in progress.** The application skeleton is in place: it starts, connects to
-> PostgreSQL and applies database migrations. Most features below are still planned — see the
+> **Status: Work in progress.** Venue, event and seat management is implemented and tested.
+> Authentication, booking and the concurrency features are still planned — see the
 > [roadmap](#roadmap) for what is actually implemented.
 
 SeatLock is an event ticket booking REST API built with Spring Boot. Its core goal is simple
@@ -72,26 +72,59 @@ your environment for the application.
 Integration tests use [Testcontainers](https://testcontainers.com/) to start a real PostgreSQL
 instance in Docker, so Docker must be running.
 
-## Draft API
+## API
+
+Interactive documentation is available at `http://localhost:8080/swagger-ui.html` while the
+application is running.
+
+> Authentication is not implemented yet, so all implemented endpoints are currently open.
+
+### Implemented
+
+| Method | Endpoint                          | Description                                              |
+|--------|-----------------------------------|----------------------------------------------------------|
+| GET    | `/api/v1/venues`                  | List venues (paginated: `page`, `size`, `sort`)          |
+| GET    | `/api/v1/venues/{id}`             | Get a venue                                              |
+| POST   | `/api/v1/venues`                  | Create a venue                                           |
+| PUT    | `/api/v1/venues/{id}`             | Update a venue                                           |
+| DELETE | `/api/v1/venues/{id}`             | Delete a venue (409 if it has events)                    |
+| GET    | `/api/v1/events`                  | List events (paginated, optional `status` filter)        |
+| GET    | `/api/v1/events/{id}`             | Get an event                                             |
+| POST   | `/api/v1/events`                  | Create an event (starts as `DRAFT`)                      |
+| PUT    | `/api/v1/events/{id}`             | Update an event                                          |
+| PATCH  | `/api/v1/events/{id}/status`      | Change status (`DRAFT → ON_SALE → FINISHED`, or `CANCELLED`) |
+| POST   | `/api/v1/events/{id}/seats`       | Generate the seat map of a `DRAFT` event (sections × rows × seats, max 10,000) |
+| GET    | `/api/v1/events/{id}/seats`       | List seats, optional `status` filter                     |
+
+Errors use the [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem detail format.
+Validation errors list every invalid field:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Validation failed",
+  "status": 400,
+  "detail": "One or more fields are invalid",
+  "instance": "/api/v1/venues",
+  "errors": [{ "field": "name", "message": "must not be blank" }]
+}
+```
+
+### Planned
 
 | Method | Endpoint                          | Description                         |
 |--------|-----------------------------------|-------------------------------------|
 | POST   | `/api/v1/auth/register`           | Create a user account               |
 | POST   | `/api/v1/auth/login`              | Obtain a JWT                        |
-| GET    | `/api/v1/venues`                  | List venues                         |
-| GET    | `/api/v1/events`                  | List events                         |
-| GET    | `/api/v1/events/{id}/seats`       | List seats and their availability   |
 | POST   | `/api/v1/bookings`                | Hold seats and create a booking     |
 | GET    | `/api/v1/bookings/me`             | List the current user's bookings    |
 | POST   | `/api/v1/bookings/{id}/pay`       | Pay for a booking (idempotent)      |
 | POST   | `/api/v1/bookings/{id}/cancel`    | Cancel a booking                    |
 
-The API is a draft and may change during development.
-
 ## Roadmap
 
 - [x] Project skeleton, PostgreSQL via Docker Compose, Flyway
-- [ ] Venue / event / seat CRUD with validation and error handling
+- [x] Venue / event / seat CRUD with validation and error handling
 - [ ] JWT authentication and role-based access
 - [ ] Booking with concurrency control (optimistic vs. pessimistic locking)
 - [ ] Redis seat holds with expiration

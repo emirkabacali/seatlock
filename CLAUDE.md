@@ -83,14 +83,16 @@ Repository: https://github.com/emirkabacali/seatlock (public, MIT license)
 - [x] App starts, connects to DB, `/actuator/health` returns UP
 - [x] Integration tests with Testcontainers (health + Flyway)
 
-## Remaining roadmap
-
 ### Phase 2 — Venue / Event / Seat CRUD
-- Entities, repositories, services, controllers, DTOs, Bean Validation
-- Bulk seat generation for an event (e.g. sections × rows × seats)
-- Global exception handling (404, 409, 400 with field errors)
-- Unit tests (service layer, Mockito) + first integration test
-- Swagger UI working
+- [x] Entities, repositories, services, controllers, DTO records, Bean Validation
+- [x] Event lifecycle rules in `EventStatus.canTransitionTo` (DRAFT → ON_SALE | CANCELLED, ON_SALE → CANCELLED | FINISHED)
+- [x] Bulk seat generation (DRAFT events only, once, max 10,000 seats); `seats.id` uses a pooled
+      sequence (V2, allocation size 50) so Hibernate batches inserts (10k seats ≈ 1.3 s locally)
+- [x] Global exception handling with RFC 9457 `ProblemDetail` (400 with field errors, 404, 409)
+- [x] Unit tests (Mockito) + `CatalogApiIntegrationTest` (MockMvc + Testcontainers); `AbstractIntegrationTest` base class
+- [x] Swagger UI at `/swagger-ui.html` (springdoc 3.0.3)
+
+## Remaining roadmap
 
 ### Phase 3 — Security
 - Spring Security + JWT (register/login, password hashing with BCrypt)

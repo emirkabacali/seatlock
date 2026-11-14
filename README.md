@@ -1,7 +1,7 @@
 # SeatLock
 
-> **Status: Work in progress.** Venue, event and seat management is implemented and tested.
-> Authentication, booking and the concurrency features are still planned — see the
+> **Status: Work in progress.** Venue, event and seat management and JWT authentication are
+> implemented and tested. Booking and the concurrency features are still planned — see the
 > [roadmap](#roadmap) for what is actually implemented.
 
 SeatLock is an event ticket booking REST API built with Spring Boot. Its core goal is simple
@@ -49,19 +49,23 @@ the double-booking bug, then fixing it.
 **Prerequisites:** Java 17 and Docker.
 
 ```bash
-# 1. Start PostgreSQL (exposed on host port 5433)
+# 1. Create your local configuration and set JWT_SECRET (at least 32 bytes)
+cp .env.example .env
+
+# 2. Start PostgreSQL (exposed on host port 5433)
 docker compose up -d
 
-# 2. Run the application (Windows: .\mvnw.cmd spring-boot:run)
+# 3. Run the application (Windows: .\mvnw.cmd spring-boot:run)
 ./mvnw spring-boot:run
 
-# 3. Check that it is up
+# 4. Check that it is up
 curl http://localhost:8080/actuator/health
 ```
 
-The application uses sensible local defaults. To override them (database URL, credentials,
-host port), copy `.env.example` to `.env` for Docker Compose and set the same variables in
-your environment for the application.
+Docker Compose reads `.env` automatically and the application imports it on startup; real
+environment variables take precedence. The application refuses to start without a valid
+`JWT_SECRET`. If `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set, an admin account is created on
+first startup.
 
 ### Running the tests
 
@@ -77,12 +81,37 @@ instance in Docker, so Docker must be running.
 Interactive documentation is available at `http://localhost:8080/swagger-ui.html` while the
 application is running.
 
-> Authentication is not implemented yet, so all implemented endpoints are currently open.
+### Authentication
+
+Authentication uses stateless JWT bearer tokens (HS256, 1 hour by default). Passwords are
+hashed with BCrypt. Public registration creates `USER` accounts; `ADMIN` accounts are created
+from configuration.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/auth/register \
+  -H 'Content-Type: application/json' -d '{"email":"jane@example.com","password":"secret-password"}'
+
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"email":"jane@example.com","password":"secret-password"}'
+# → {"accessToken":"eyJ...","tokenType":"Bearer","expiresIn":3600}
+
+curl http://localhost:8080/api/v1/... -H 'Authorization: Bearer eyJ...'
+```
+
+| Access     | Endpoints                                                              |
+|------------|------------------------------------------------------------------------|
+| Public     | `POST /api/v1/auth/*`, all `GET` venue/event/seat endpoints, health, API docs |
+| `ADMIN`    | Creating and changing venues, events and seat maps                     |
+| Any user   | Everything else (requires a valid token)                               |
+
+Missing or invalid tokens return `401`; insufficient roles return `403`.
 
 ### Implemented
 
 | Method | Endpoint                          | Description                                              |
 |--------|-----------------------------------|----------------------------------------------------------|
+| POST   | `/api/v1/auth/register`           | Create a `USER` account                                  |
+| POST   | `/api/v1/auth/login`              | Obtain a JWT access token                                |
 | GET    | `/api/v1/venues`                  | List venues (paginated: `page`, `size`, `sort`)          |
 | GET    | `/api/v1/venues/{id}`             | Get a venue                                              |
 | POST   | `/api/v1/venues`                  | Create a venue                                           |
@@ -114,8 +143,6 @@ Validation errors list every invalid field:
 
 | Method | Endpoint                          | Description                         |
 |--------|-----------------------------------|-------------------------------------|
-| POST   | `/api/v1/auth/register`           | Create a user account               |
-| POST   | `/api/v1/auth/login`              | Obtain a JWT                        |
 | POST   | `/api/v1/bookings`                | Hold seats and create a booking     |
 | GET    | `/api/v1/bookings/me`             | List the current user's bookings    |
 | POST   | `/api/v1/bookings/{id}/pay`       | Pay for a booking (idempotent)      |
@@ -125,7 +152,7 @@ Validation errors list every invalid field:
 
 - [x] Project skeleton, PostgreSQL via Docker Compose, Flyway
 - [x] Venue / event / seat CRUD with validation and error handling
-- [ ] JWT authentication and role-based access
+- [x] JWT authentication and role-based access
 - [ ] Booking with concurrency control (optimistic vs. pessimistic locking)
 - [ ] Redis seat holds with expiration
 - [ ] Idempotent payment simulation

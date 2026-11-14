@@ -18,6 +18,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -84,6 +85,13 @@ public class Booking {
 		this.holdToken = holdToken;
 	}
 
+	/** Confirms a paid PENDING booking: its seats become BOOKED for good. */
+	public void confirm() {
+		requirePending("confirmed");
+		seats.forEach(Seat::book);
+		this.status = BookingStatus.CONFIRMED;
+	}
+
 	/** Marks a PENDING booking whose hold time has passed as EXPIRED and releases its seats. */
 	public void expire() {
 		requirePending("expired");
@@ -105,7 +113,7 @@ public class Booking {
 
 	@PrePersist
 	void onCreate() {
-		this.createdAt = Instant.now();
+		this.createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
 	}
 
 	/** Cancels a PENDING booking and releases its seats. */

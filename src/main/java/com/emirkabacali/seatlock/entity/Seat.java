@@ -86,6 +86,14 @@ public class Seat {
 		this.status = SeatStatus.AVAILABLE;
 	}
 
+	/** HELD → BOOKED when the booking is paid. */
+	public void book() {
+		if (status != SeatStatus.HELD) {
+			throw new IllegalStateException("Seat " + id + " is " + status + " and cannot be booked");
+		}
+		this.status = SeatStatus.BOOKED;
+	}
+
 	public Long getId() {
 		return id;
 	}

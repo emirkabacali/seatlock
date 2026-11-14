@@ -6,7 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Binds the {@code seatlock.booking.*} section of application.yml. */
 @ConfigurationProperties(prefix = "seatlock.booking")
-public record BookingProperties(Duration holdDuration, LockingStrategy lockingStrategy, Integer maxSeatsPerBooking) {
+public record BookingProperties(Duration holdDuration, LockingStrategy lockingStrategy, Integer maxSeatsPerBooking,
+		ExpiryJob expiryJob) {
 
 	public BookingProperties {
 		if (holdDuration == null) {
@@ -18,6 +19,22 @@ public record BookingProperties(Duration holdDuration, LockingStrategy lockingSt
 		if (maxSeatsPerBooking == null) {
 			maxSeatsPerBooking = 10;
 		}
+		if (expiryJob == null) {
+			expiryJob = new ExpiryJob(true, null, null);
+		}
+	}
+
+	public record ExpiryJob(boolean enabled, Duration interval, Integer batchSize) {
+
+		public ExpiryJob {
+			if (interval == null) {
+				interval = Duration.ofSeconds(30);
+			}
+			if (batchSize == null) {
+				batchSize = 100;
+			}
+		}
+
 	}
 
 }

@@ -92,12 +92,19 @@ Repository: https://github.com/emirkabacali/seatlock (public, MIT license)
 - [x] Unit tests (Mockito) + `CatalogApiIntegrationTest` (MockMvc + Testcontainers); `AbstractIntegrationTest` base class
 - [x] Swagger UI at `/swagger-ui.html` (springdoc 3.0.3)
 
-## Remaining roadmap
-
 ### Phase 3 — Security
-- Spring Security + JWT (register/login, password hashing with BCrypt)
-- Role-based access: ADMIN manages venues/events, USER books
-- Tests for protected endpoints (401 / 403 cases)
+- [x] Spring Security + JWT via `spring-boot-starter-security-oauth2-resource-server` (Nimbus, HS256);
+      `TokenService` issues tokens (`sub` = user id, `roles`, `email` claims), `JwtDecoder` validates signature/expiry/issuer
+- [x] `users` table (V3), BCrypt password hashes, emails normalized to lower case, constant-time-ish login (dummy hash)
+- [x] Public: auth, GET catalog, health, API docs. ADMIN: catalog writes. Everything else: authenticated
+- [x] First ADMIN created on startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD` (`AdminAccountInitializer`)
+- [x] `JWT_SECRET` has no default; startup fails if missing or < 32 bytes. Local values come from `.env`
+      via `spring.config.import: optional:file:.env[.properties]`
+- [x] 401/403 delegated to `GlobalExceptionHandler` (same ProblemDetail format)
+- [x] Tests: real-token `AuthSecurityIntegrationTest`; `asAdmin()` / `asUser(id)` mock-JWT helpers in `AbstractIntegrationTest`
+- [x] Injectable `Clock` bean (`TimeConfig`) for time-dependent code
+
+## Remaining roadmap
 
 ### Phase 4 — Booking & concurrency (the core)
 - Implement a **naive** booking first

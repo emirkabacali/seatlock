@@ -5,7 +5,6 @@ import java.nio.charset.StandardCharsets;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
@@ -39,7 +38,6 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  * problem detail JSON as every other error.
  */
 @Configuration
-@EnableConfigurationProperties(SecurityProperties.class)
 public class SecurityConfig {
 
 	private static final String ADMIN = "ADMIN";

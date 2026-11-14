@@ -18,6 +18,9 @@ spring:
         jdbc:
           batch_size: 50
         order_inserts: true
+        order_updates: true
+        # Loads lazy collections for up to 50 parents in one query (avoids N+1 on booking seats).
+        default_batch_fetch_size: 50
   data:
     web:
       pageable:
@@ -37,6 +40,12 @@ seatlock:
     admin:
       email: ${ADMIN_EMAIL:}
       password: ${ADMIN_PASSWORD:}
+  booking:
+    # How long seats stay HELD while a booking waits for payment.
+    hold-duration: ${BOOKING_HOLD_DURATION:PT10M}
+    # OPTIMISTIC (@Version) or PESSIMISTIC (SELECT ... FOR UPDATE). NAIVE is unsafe, for demonstration only.
+    locking-strategy: ${BOOKING_LOCKING_STRATEGY:OPTIMISTIC}
+    max-seats-per-booking: 10
 
 management:
   endpoints:

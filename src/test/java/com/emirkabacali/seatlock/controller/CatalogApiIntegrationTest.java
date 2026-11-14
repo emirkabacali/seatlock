@@ -32,7 +32,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.name").value("Volkswagen Arena"));
 
-		mockMvc.perform(put("/api/v1/venues/{id}", venueId).contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(put("/api/v1/venues/{id}", venueId).with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"name": "Renamed Arena", "city": "Istanbul", "address": "Huzur Mah. 1"}
 						"""))
@@ -43,13 +43,13 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.content[*].name", hasItem("Renamed Arena")));
 
-		mockMvc.perform(delete("/api/v1/venues/{id}", venueId)).andExpect(status().isNoContent());
+		mockMvc.perform(delete("/api/v1/venues/{id}", venueId).with(asAdmin())).andExpect(status().isNoContent());
 		mockMvc.perform(get("/api/v1/venues/{id}", venueId)).andExpect(status().isNotFound());
 	}
 
 	@Test
 	void invalidVenueReturns400WithFieldErrors() throws Exception {
-		mockMvc.perform(post("/api/v1/venues").contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(post("/api/v1/venues").with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"name": "", "city": "Istanbul"}
 						"""))
@@ -61,7 +61,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 
 	@Test
 	void malformedJsonReturns400() throws Exception {
-		mockMvc.perform(post("/api/v1/venues").contentType(MediaType.APPLICATION_JSON).content("{not json"))
+		mockMvc.perform(post("/api/v1/venues").with(asAdmin()).contentType(MediaType.APPLICATION_JSON).content("{not json"))
 				.andExpect(status().isBadRequest());
 	}
 
@@ -84,7 +84,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 		long venueId = createVenue("Busy Arena");
 		createEvent(venueId, "Some Concert");
 
-		mockMvc.perform(delete("/api/v1/venues/{id}", venueId))
+		mockMvc.perform(delete("/api/v1/venues/{id}", venueId).with(asAdmin()))
 				.andExpect(status().isConflict());
 	}
 
@@ -92,7 +92,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 	void eventInThePastIsRejected() throws Exception {
 		long venueId = createVenue("Past Arena");
 
-		mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(post("/api/v1/events").with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"venueId": %d, "name": "Old Show", "startsAt": "2020-01-01T20:00:00Z"}
 						""".formatted(venueId)))
@@ -111,7 +111,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 				.andExpect(jsonPath("$.venueName").value("Lifecycle Arena"));
 
 		// 2 sections: VIP 2x5 + B 30x4 = 130 seats (30 rows exercises labels beyond Z)
-		mockMvc.perform(post("/api/v1/events/{id}/seats", eventId).contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(post("/api/v1/events/{id}/seats", eventId).with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"sections": [
 						  {"name": "VIP", "rows": 2, "seatsPerRow": 5, "price": 750.00},
@@ -132,7 +132,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 				.andExpect(jsonPath("$[129].price").value(120.50));
 
 		// The seat map cannot be generated twice
-		mockMvc.perform(post("/api/v1/events/{id}/seats", eventId).contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(post("/api/v1/events/{id}/seats", eventId).with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"sections": [{"name": "C", "rows": 1, "seatsPerRow": 1, "price": 10}]}
 						"""))
@@ -153,7 +153,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 	void seatGenerationValidatesLayout() throws Exception {
 		long eventId = createEvent(createVenue("Validation Arena"), "Validation Show");
 
-		mockMvc.perform(post("/api/v1/events/{id}/seats", eventId).contentType(MediaType.APPLICATION_JSON)
+		mockMvc.perform(post("/api/v1/events/{id}/seats", eventId).with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"sections": [{"name": "A", "rows": 0, "seatsPerRow": 10, "price": -5}]}
 						"""))
@@ -170,7 +170,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 	}
 
 	private long createVenue(String name) throws Exception {
-		MvcResult result = mockMvc.perform(post("/api/v1/venues").contentType(MediaType.APPLICATION_JSON)
+		MvcResult result = mockMvc.perform(post("/api/v1/venues").with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"name": "%s", "city": "Istanbul", "address": "Huzur Mah. 1"}
 						""".formatted(name)))
@@ -181,7 +181,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 	}
 
 	private long createEvent(long venueId, String name) throws Exception {
-		MvcResult result = mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON)
+		MvcResult result = mockMvc.perform(post("/api/v1/events").with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"venueId": %d, "name": "%s", "description": "Test event", "startsAt": "%s"}
 						""".formatted(venueId, name, FUTURE)))
@@ -192,7 +192,7 @@ class CatalogApiIntegrationTest extends AbstractIntegrationTest {
 
 	private org.springframework.test.web.servlet.ResultActions changeStatus(long eventId, String status)
 			throws Exception {
-		return mockMvc.perform(patch("/api/v1/events/{id}/status", eventId).contentType(MediaType.APPLICATION_JSON)
+		return mockMvc.perform(patch("/api/v1/events/{id}/status", eventId).with(asAdmin()).contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"status": "%s"}
 						""".formatted(status)));

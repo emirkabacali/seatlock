@@ -1,8 +1,8 @@
 # SeatLock
 
-> **Status: Work in progress.** Venue, event and seat management and JWT authentication are
-> implemented and tested. Booking and the concurrency features are still planned — see the
-> [roadmap](#roadmap) for what is actually implemented.
+> **Status: Work in progress.** Venue/event/seat management, JWT authentication and
+> concurrency-safe seat booking are implemented and tested. Hold expiry and payments are still
+> planned — see the [roadmap](#roadmap) for what is actually implemented.
 
 SeatLock is an event ticket booking REST API built with Spring Boot. Its core goal is simple
 to state and hard to get right:
@@ -15,6 +15,41 @@ Ticket sales are a classic concurrency problem: when thousands of users try to b
 seats at the same moment, a naive implementation will happily sell one seat to several people.
 SeatLock focuses on solving this correctly and demonstrating it with tests — first reproducing
 the double-booking bug, then fixing it.
+
+## How double booking is prevented
+
+Booking a seat is a *check-then-act* operation: read the seat, check that it is `AVAILABLE`,
+mark it `HELD`. If two requests run this at the same time, both can pass the check before
+either writes, and both believe they got the seat.
+
+SeatLock implements three strategies side by side (`SeatReserver`) so the difference can be
+measured:
+
+| Strategy | How it works | Outcome under contention |
+|----------|--------------|--------------------------|
+| `NAIVE` (demo only) | Read, check, then a bulk `UPDATE` that ignores the version column | **Double booking** |
+| `OPTIMISTIC` (default) | `@Version` column; Hibernate updates with `WHERE id = ? AND version = ?`. A stale version updates 0 rows and the transaction fails | One winner, others fail fast with `409` |
+| `PESSIMISTIC` | `SELECT ... FOR UPDATE` locks the seat rows (in id order to avoid deadlocks); other transactions wait, then see `HELD` | One winner, others wait and then get `409` |
+
+`BookingConcurrencyIntegrationTest` releases 30 threads at the same moment (`CountDownLatch`)
+against the same seat on a real PostgreSQL. A typical run:
+
+```text
+NAIVE        10 successful bookings for the same seat
+OPTIMISTIC    1 success, 29 conflicts
+PESSIMISTIC   1 success, 29 conflicts
+```
+
+(With `NAIVE`, the number of "winners" matches the connection pool size: every transaction
+that reaches the database before the first commit sees the seat as available.)
+
+Further tests cover overlapping multi-seat requests (`{1,2}`, `{2,3}`, … — no seat ever ends up
+in two bookings) and the same race over HTTP (exactly one `201`, all others `409`).
+
+**Trade-offs.** Optimistic locking holds no database locks and rejects losers immediately,
+which suits short transactions and moderate contention. Pessimistic locking serializes access
+to hot rows, which avoids wasted work under heavy contention but holds row locks and database
+connections while others wait. The strategy is configurable via `BOOKING_LOCKING_STRATEGY`.
 
 ## Planned features
 
@@ -124,6 +159,10 @@ Missing or invalid tokens return `401`; insufficient roles return `403`.
 | PATCH  | `/api/v1/events/{id}/status`      | Change status (`DRAFT → ON_SALE → FINISHED`, or `CANCELLED`) |
 | POST   | `/api/v1/events/{id}/seats`       | Generate the seat map of a `DRAFT` event (sections × rows × seats, max 10,000) |
 | GET    | `/api/v1/events/{id}/seats`       | List seats, optional `status` filter                     |
+| POST   | `/api/v1/bookings`                | Hold up to 10 seats of an `ON_SALE` event (`PENDING` booking, 409 if a seat is taken) |
+| GET    | `/api/v1/bookings/me`             | List the current user's bookings (paginated)             |
+| GET    | `/api/v1/bookings/{id}`           | Get one of the current user's bookings                   |
+| POST   | `/api/v1/bookings/{id}/cancel`    | Cancel a `PENDING` booking and release its seats         |
 
 Errors use the [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem detail format.
 Validation errors list every invalid field:
@@ -143,17 +182,14 @@ Validation errors list every invalid field:
 
 | Method | Endpoint                          | Description                         |
 |--------|-----------------------------------|-------------------------------------|
-| POST   | `/api/v1/bookings`                | Hold seats and create a booking     |
-| GET    | `/api/v1/bookings/me`             | List the current user's bookings    |
 | POST   | `/api/v1/bookings/{id}/pay`       | Pay for a booking (idempotent)      |
-| POST   | `/api/v1/bookings/{id}/cancel`    | Cancel a booking                    |
 
 ## Roadmap
 
 - [x] Project skeleton, PostgreSQL via Docker Compose, Flyway
 - [x] Venue / event / seat CRUD with validation and error handling
 - [x] JWT authentication and role-based access
-- [ ] Booking with concurrency control (optimistic vs. pessimistic locking)
+- [x] Booking with concurrency control (optimistic vs. pessimistic locking)
 - [ ] Redis seat holds with expiration
 - [ ] Idempotent payment simulation
 - [ ] Testcontainers, Dockerfile, CI pipeline, full documentation

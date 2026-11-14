@@ -1,21 +1,86 @@
 # SeatLock
 
-> **Status: Work in progress.** The booking flow is implemented and tested end to end:
-> catalog management, JWT authentication, concurrency-safe seat booking, Redis seat holds with
-> expiry and idempotent (simulated) payments. Packaging and CI are still planned — see the
-> [roadmap](#roadmap).
+[![CI](https://github.com/emirkabacali/seatlock/actions/workflows/ci.yml/badge.svg)](https://github.com/emirkabacali/seatlock/actions/workflows/ci.yml)
+![Java 17](https://img.shields.io/badge/Java-17-blue)
+![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4.0-6DB33F)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 SeatLock is an event ticket booking REST API built with Spring Boot. Its core goal is simple
 to state and hard to get right:
 
 **A seat must never be sold twice, even under heavy concurrent traffic.**
 
-## Why this project
-
 Ticket sales are a classic concurrency problem: when thousands of users try to buy the same
 seats at the same moment, a naive implementation will happily sell one seat to several people.
-SeatLock focuses on solving this correctly and demonstrating it with tests — first reproducing
-the double-booking bug, then fixing it.
+SeatLock reproduces that bug in a test, then fixes it — and proves the fix with concurrent
+integration tests against real PostgreSQL and Redis.
+
+> This is a portfolio/learning project. It runs locally and in CI; it is not deployed anywhere,
+> and payments are simulated.
+
+## Highlights
+
+- **Concurrency-safe booking** with optimistic (`@Version`) and pessimistic (`SELECT ... FOR UPDATE`)
+  locking, compared side by side against a deliberately naive strategy
+- **Redis seat holds** with TTL as a fast first gate in front of the database (atomic Lua script)
+- **Automatic hold expiry** via a scheduled job using `FOR UPDATE SKIP LOCKED`
+- **Idempotent payments** with an `Idempotency-Key` header and database-level double-charge protection
+- **JWT authentication** with role-based access (`USER` / `ADMIN`), BCrypt password hashing
+- **Consistent errors** in RFC 9457 problem detail format, OpenAPI / Swagger UI
+- **108 tests**: Mockito unit tests and Testcontainers integration tests, run on every push by GitHub Actions
+- **One-command stack**: `docker compose up` builds and starts the app, PostgreSQL and Redis
+
+## Architecture
+
+```mermaid
+flowchart LR
+    client([Client]) -->|HTTP + JWT| api
+
+    subgraph app [Spring Boot application]
+        api[Controllers<br/>DTOs + validation] --> svc[Services<br/>business rules]
+        svc --> repo[Repositories<br/>Spring Data JPA]
+        job[[BookingExpiryJob<br/>@Scheduled]] --> svc
+    end
+
+    svc -->|seat holds, TTL| redis[(Redis)]
+    repo -->|locking, constraints| pg[(PostgreSQL<br/>Flyway migrations)]
+```
+
+The code follows a layered structure: `controller` → `service` → `repository` → `entity`,
+with `dto`, `exception`, `config` and `security` packages. Entities are never exposed; every
+request and response is a DTO record.
+
+### Booking flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as BookingService
+    participant R as Redis
+    participant W as BookingWriter (transaction)
+    participant DB as PostgreSQL
+
+    C->>S: POST /bookings {eventId, seatIds}
+    S->>R: hold all seats (Lua, all-or-nothing, TTL 10 min)
+    alt a seat is already held
+        R-->>S: rejected
+        S-->>C: 409 (database not touched)
+    else holds acquired (or Redis unavailable)
+        S->>W: create booking
+        W->>DB: lock / version-check seats, AVAILABLE → HELD, insert booking
+        alt conflict in the database
+            W-->>S: conflict
+            S->>R: release holds
+            S-->>C: 409
+        else success
+            W-->>S: PENDING booking
+            S-->>C: 201
+        end
+    end
+```
+
+A booking is `PENDING` until it is paid (`CONFIRMED`, seats `BOOKED`), cancelled (`CANCELLED`)
+or its hold runs out (`EXPIRED`); in the last two cases its seats become `AVAILABLE` again.
 
 ## How double booking is prevented
 
@@ -41,11 +106,15 @@ OPTIMISTIC    1 success, 29 conflicts
 PESSIMISTIC   1 success, 29 conflicts
 ```
 
-(With `NAIVE`, the number of "winners" matches the connection pool size: every transaction
-that reaches the database before the first commit sees the seat as available.)
+With `NAIVE`, the number of "winners" matches the connection pool size: every transaction that
+reaches the database before the first commit sees the seat as available. Further tests cover
+overlapping multi-seat requests (`{1,2}`, `{2,3}`, … — no seat ever ends up in two bookings)
+and the same race over HTTP (exactly one `201`, all others `409`).
 
-Further tests cover overlapping multi-seat requests (`{1,2}`, `{2,3}`, … — no seat ever ends up
-in two bookings) and the same race over HTTP (exactly one `201`, all others `409`).
+**Trade-offs.** Optimistic locking holds no database locks and rejects losers immediately,
+which suits short transactions and moderate contention. Pessimistic locking serializes access
+to hot rows, which avoids wasted work under heavy contention but holds row locks and database
+connections while others wait. The strategy is configurable via `BOOKING_LOCKING_STRATEGY`.
 
 ### Seat holds in Redis
 
@@ -87,87 +156,72 @@ or an automatic client retry must not charge twice:
 
 Payments are simulated (`SimulatedPaymentGateway`, similar to Stripe test cards):
 `pm_card_declined` and `pm_card_insufficient_funds` fail, any other payment method succeeds.
-A successful payment confirms the booking and marks its seats `BOOKED`; a failed one leaves it
-`PENDING` so the user can retry with a new key until the hold expires.
-
-`PaymentConcurrencyIntegrationTest` sends 10 simultaneous requests with the same key (one
-payment row, identical responses) and with different keys (exactly one success, nine `409`s).
-
-**Trade-offs.** Optimistic locking holds no database locks and rejects losers immediately,
-which suits short transactions and moderate contention. Pessimistic locking serializes access
-to hot rows, which avoids wasted work under heavy contention but holds row locks and database
-connections while others wait. The strategy is configurable via `BOOKING_LOCKING_STRATEGY`.
-
-## Planned features
-
-- **Authentication & authorization** — register/login with JWT, BCrypt password hashing,
-  role-based access (`USER`, `ADMIN`)
-- **Venue, event and seat management** — admins create venues and events and generate seat maps
-  in bulk (sections × rows × seats)
-- **Concurrency-safe booking** — optimistic locking (`@Version`) compared with pessimistic
-  locking (`SELECT ... FOR UPDATE`), backed by tests that fire concurrent requests at the same seat
-- **Temporary seat holds** — seats are held in Redis with a TTL while the user completes payment;
-  expired holds release seats automatically
-- **Idempotent payments (simulated)** — `Idempotency-Key` header ensures a retried request never
-  charges twice
-- **Consistent error handling** — a single JSON error format for validation, not-found and
-  conflict errors
-- **API documentation** — OpenAPI / Swagger UI
+A failed payment leaves the booking `PENDING`, so the user can retry with a new key until the
+hold expires. `PaymentConcurrencyIntegrationTest` sends 10 simultaneous requests with the same
+key (one payment row, identical responses) and with different keys (exactly one success, nine
+`409`s).
 
 ## Tech stack
 
-| Area           | Technology                                          |
-|----------------|-----------------------------------------------------|
-| Language       | Java 17                                             |
-| Framework      | Spring Boot 4 (Web MVC, Data JPA, Validation, Security) |
-| Database       | PostgreSQL, Flyway migrations                       |
-| Cache / holds  | Redis                                               |
-| Testing        | JUnit 5, Mockito, Spring Boot Test, Testcontainers  |
-| Infrastructure | Docker, Docker Compose, GitHub Actions              |
-| Docs           | Springdoc OpenAPI                                   |
+| Area           | Technology                                                    |
+|----------------|---------------------------------------------------------------|
+| Language       | Java 17                                                       |
+| Framework      | Spring Boot 4 (Web MVC, Data JPA, Validation, Security)       |
+| Database       | PostgreSQL 17, Flyway migrations (`ddl-auto: validate`)       |
+| Cache / holds  | Redis 7                                                       |
+| Security       | Spring Security OAuth2 Resource Server (JWT, HS256), BCrypt   |
+| Testing        | JUnit 5, Mockito, AssertJ, Spring Boot Test, Testcontainers   |
+| Infrastructure | Docker (multi-stage build), Docker Compose, GitHub Actions    |
+| Docs           | springdoc-openapi (Swagger UI)                                |
 
 ## Getting started
 
-**Prerequisites:** Java 17 and Docker.
+**Prerequisites:** Docker. For local development without the app container also Java 17.
+
+### Run everything with Docker Compose
 
 ```bash
-# 1. Create your local configuration and set JWT_SECRET (at least 32 bytes)
-cp .env.example .env
-
-# 2. Start PostgreSQL (host port 5433) and Redis (host port 6379)
-docker compose up -d
-
-# 3. Run the application (Windows: .\mvnw.cmd spring-boot:run)
-./mvnw spring-boot:run
-
-# 4. Check that it is up
+cp .env.example .env      # then set JWT_SECRET (at least 32 bytes), e.g. openssl rand -base64 48
+docker compose up -d --build
 curl http://localhost:8080/actuator/health
 ```
 
-Docker Compose reads `.env` automatically and the application imports it on startup; real
-environment variables take precedence. The application refuses to start without a valid
-`JWT_SECRET`. If `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set, an admin account is created on
-first startup.
+This builds the application image and starts it together with PostgreSQL and Redis. Swagger
+UI is available at `http://localhost:8080/swagger-ui.html`. If `ADMIN_EMAIL` and
+`ADMIN_PASSWORD` are set in `.env`, an admin account is created on first startup.
 
-### Running the tests
+### Local development
 
 ```bash
-./mvnw test
+cp .env.example .env               # set JWT_SECRET
+docker compose up -d postgres redis
+./mvnw spring-boot:run             # Windows: .\mvnw.cmd spring-boot:run
 ```
 
-Integration tests use [Testcontainers](https://testcontainers.com/) to start real PostgreSQL
-and Redis instances in Docker, so Docker must be running.
+The application imports `.env` on startup (`spring.config.import`); real environment variables
+take precedence. It refuses to start without a valid `JWT_SECRET`.
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `JWT_SECRET` | — (required) | HMAC key for signing tokens, at least 32 bytes |
+| `JWT_TTL` | `PT1H` | Access token lifetime |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | — | Optional admin account created on startup |
+| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | local Compose database | PostgreSQL connection |
+| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Redis connection |
+| `BOOKING_HOLD_DURATION` | `PT10M` | How long seats stay held before payment |
+| `BOOKING_LOCKING_STRATEGY` | `OPTIMISTIC` | `OPTIMISTIC` or `PESSIMISTIC` (`NAIVE` is unsafe, demo only) |
+| `BOOKING_EXPIRY_INTERVAL` | `PT30S` | How often expired holds are cleaned up |
 
 ## API
 
-Interactive documentation is available at `http://localhost:8080/swagger-ui.html` while the
-application is running.
+Interactive documentation: `http://localhost:8080/swagger-ui.html`.
 
 ### Authentication
 
-Authentication uses stateless JWT bearer tokens (HS256, 1 hour by default). Passwords are
-hashed with BCrypt. Public registration creates `USER` accounts; `ADMIN` accounts are created
-from configuration.
+Stateless JWT bearer tokens (HS256, 1 hour by default). Public registration creates `USER`
+accounts; `ADMIN` accounts come from configuration.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/auth/register \
@@ -176,19 +230,18 @@ curl -X POST http://localhost:8080/api/v1/auth/register \
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' -d '{"email":"jane@example.com","password":"secret-password"}'
 # → {"accessToken":"eyJ...","tokenType":"Bearer","expiresIn":3600}
-
-curl http://localhost:8080/api/v1/... -H 'Authorization: Bearer eyJ...'
 ```
 
 | Access     | Endpoints                                                              |
 |------------|------------------------------------------------------------------------|
 | Public     | `POST /api/v1/auth/*`, all `GET` venue/event/seat endpoints, health, API docs |
 | `ADMIN`    | Creating and changing venues, events and seat maps                     |
-| Any user   | Everything else (requires a valid token)                               |
+| Any user   | Bookings and payments (own bookings only)                              |
 
-Missing or invalid tokens return `401`; insufficient roles return `403`.
+Missing or invalid tokens return `401`; insufficient roles return `403`; other users'
+bookings return `404`.
 
-### Implemented
+### Endpoints
 
 | Method | Endpoint                          | Description                                              |
 |--------|-----------------------------------|----------------------------------------------------------|
@@ -206,7 +259,7 @@ Missing or invalid tokens return `401`; insufficient roles return `403`.
 | PATCH  | `/api/v1/events/{id}/status`      | Change status (`DRAFT → ON_SALE → FINISHED`, or `CANCELLED`) |
 | POST   | `/api/v1/events/{id}/seats`       | Generate the seat map of a `DRAFT` event (sections × rows × seats, max 10,000) |
 | GET    | `/api/v1/events/{id}/seats`       | List seats, optional `status` filter                     |
-| POST   | `/api/v1/bookings`                | Hold up to 10 seats of an `ON_SALE` event (`PENDING` booking, 409 if a seat is taken) |
+| POST   | `/api/v1/bookings`                | Hold up to 10 seats of an `ON_SALE` event (`PENDING` booking) |
 | GET    | `/api/v1/bookings/me`             | List the current user's bookings (paginated)             |
 | GET    | `/api/v1/bookings/{id}`           | Get one of the current user's bookings                   |
 | POST   | `/api/v1/bookings/{id}/pay`       | Pay for a `PENDING` booking (simulated, requires `Idempotency-Key`) |
@@ -226,15 +279,30 @@ Validation errors list every invalid field:
 }
 ```
 
-## Roadmap
+## Testing
 
-- [x] Project skeleton, PostgreSQL via Docker Compose, Flyway
-- [x] Venue / event / seat CRUD with validation and error handling
-- [x] JWT authentication and role-based access
-- [x] Booking with concurrency control (optimistic vs. pessimistic locking)
-- [x] Redis seat holds with expiration
-- [x] Idempotent payment simulation
-- [ ] Testcontainers, Dockerfile, CI pipeline, full documentation
+```bash
+./mvnw test     # Docker must be running
+```
+
+| Level | What | Examples |
+|-------|------|----------|
+| Unit | Business rules with mocked dependencies (Mockito), no Spring context | `BookingServiceTest`, `SeatServiceTest`, `EventStatusTest` |
+| Integration | Full application context, MockMvc, real PostgreSQL and Redis via Testcontainers | `CatalogApiIntegrationTest`, `AuthSecurityIntegrationTest`, `PaymentApiIntegrationTest` |
+| Concurrency | Many threads released at once with a `CountDownLatch`; results checked against the database | `BookingConcurrencyIntegrationTest`, `PaymentConcurrencyIntegrationTest` |
+
+All integration test classes share one cached Spring context and one set of containers
+(`AbstractIntegrationTest`). Security tests use real tokens from the login endpoint; other
+tests use Spring Security's mocked JWTs. GitHub Actions runs the full suite and builds the
+Docker image on every push and pull request.
+
+## Limitations and possible next steps
+
+- Payments are simulated; a real provider call would move out of the database transaction
+  (pending record + provider-side idempotency key, or webhooks).
+- Access tokens cannot be revoked before they expire (no refresh tokens or deny list).
+- While Redis is down, every booking waits for the Redis timeout; a circuit breaker would avoid that.
+- No rate limiting, metrics export or structured logging yet.
 
 ## License
 

@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: seatlock-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-seatlock}
+      POSTGRES_USER: ${POSTGRES_USER:-seatlock}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-seatlock}
+    ports:
+      # Host port 5433 avoids clashing with a locally installed PostgreSQL on 5432.
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

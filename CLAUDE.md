@@ -31,8 +31,11 @@ Repository: https://github.com/emirkabacali/seatlock (public, MIT license)
 
 ## Tech stack & architecture decisions
 
-- Java 17, Spring Boot 3.x (Web, Data JPA, Validation, Security), Maven (via Maven Wrapper)
-- PostgreSQL (in Docker via `docker-compose.yml`), **Flyway** for migrations
+- Java 17, Spring Boot 4.0.x (Web MVC, Data JPA, Validation, Security), Maven (via Maven Wrapper).
+  Originally planned as 3.x; start.spring.io no longer offers 3.x. Boot 4 uses modular starters
+  (`spring-boot-starter-webmvc`, `spring-boot-starter-flyway`, per-module `*-test` starters)
+- PostgreSQL (in Docker via `docker-compose.yml`, host port 5433 to avoid clashing with a local
+  PostgreSQL install), **Flyway** for migrations
   (`spring.jpa.hibernate.ddl-auto=validate`, never `update`)
 - Redis (Docker) for temporary seat holds with TTL
 - Springdoc OpenAPI (Swagger UI)
@@ -72,18 +75,15 @@ Repository: https://github.com/emirkabacali/seatlock (public, MIT license)
 - [x] Repo created on GitHub with README, Java `.gitignore`, MIT `LICENSE`; cloned locally
 - [x] README replaced with the project overview (`docs: add project overview and planned features`)
 - [x] `CLAUDE.md` added to the repo; personal notes split into git-ignored `CLAUDE.local.md`
-- [ ] **NEXT:** end-of-phase check questions, then start Phase 1
-
-## Remaining roadmap
 
 ### Phase 1 — Skeleton + database
-- Generate Spring Boot project (start.spring.io settings or equivalent) into the repo root
-- `docker-compose.yml` with PostgreSQL (+ named volume), `.env.example`
-- Flyway set up, first migration `V1__init.sql`
-- App starts, connects to DB, `/actuator/health` returns UP
-- Explain: Spring Boot auto-configuration, `application.yml`, profiles, Docker volumes
-- Note: the current `.gitignore` ignores `*.jar`; add an exception for
-  `.mvn/wrapper/maven-wrapper.jar` when the Maven Wrapper is added
+- [x] Spring Boot 4.0.9 project generated (Maven Wrapper in `only-script` mode, no wrapper jar)
+- [x] `docker-compose.yml` with PostgreSQL 17 (+ named volume), `.env.example`
+- [x] Flyway set up, `V1__init.sql` creates `venues`, `events`, `seats`
+- [x] App starts, connects to DB, `/actuator/health` returns UP
+- [x] Integration tests with Testcontainers (health + Flyway)
+
+## Remaining roadmap
 
 ### Phase 2 — Venue / Event / Seat CRUD
 - Entities, repositories, services, controllers, DTOs, Bean Validation

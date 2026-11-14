@@ -25,3 +25,28 @@ replay_pid*
 
 # Claude Code personal instructions (local only)
 CLAUDE.local.md
+
+# Maven / Spring Boot
+target/
+HELP.md
+
+# IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.classpath
+.project
+.settings/
+.factorypath
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local environment (secrets)
+.env
+
+# Personal learning notes (local only)
+learning/

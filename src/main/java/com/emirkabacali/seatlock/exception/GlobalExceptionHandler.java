@@ -48,6 +48,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return problem(HttpStatus.CONFLICT, "Conflict", ex.getMessage());
 	}
 
+	@ExceptionHandler(IdempotencyKeyReuseException.class)
+	ProblemDetail handleIdempotencyKeyReuse(IdempotencyKeyReuseException ex) {
+		return problem(HttpStatus.UNPROCESSABLE_CONTENT, "Idempotency key reused", ex.getMessage());
+	}
+
 	@ExceptionHandler(BadRequestException.class)
 	ProblemDetail handleBadRequest(BadRequestException ex) {
 		return problem(HttpStatus.BAD_REQUEST, "Bad request", ex.getMessage());

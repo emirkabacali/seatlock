@@ -44,6 +44,15 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 			+ "and b.expiresAt <= :now order by b.expiresAt")
 	List<Booking> findOverdueForUpdate(@Param("now") Instant now, Pageable pageable);
 
+	/**
+	 * Locks the booking row ({@code SELECT ... FOR UPDATE}) so that all payment attempts for one
+	 * booking — including concurrent retries with the same Idempotency-Key — run one after another.
+	 * (Seats are not join-fetched here: PostgreSQL cannot lock the nullable side of an outer join.)
+	 */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select b from Booking b where b.id = :id and b.user.id = :userId")
+	Optional<Booking> findByIdAndUserIdForUpdate(@Param("id") Long id, @Param("userId") Long userId);
+
 	/** Number of bookings in the given states that contain the seat. */
 	@Query("select count(b) from Booking b join b.seats s where s.id = :seatId and b.status in :statuses")
 	long countBySeatIdAndStatusIn(@Param("seatId") Long seatId, @Param("statuses") Collection<BookingStatus> statuses);

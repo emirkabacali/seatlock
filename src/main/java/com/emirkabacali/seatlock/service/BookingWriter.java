@@ -13,6 +13,8 @@ import com.emirkabacali.seatlock.repository.BookingRepository;
 import com.emirkabacali.seatlock.repository.EventRepository;
 import com.emirkabacali.seatlock.repository.UserRepository;
 import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -61,8 +63,9 @@ public class BookingWriter {
 
 		List<Seat> seats = seatReserver.reserve(event.getId(), seatIds, strategy);
 
-		Booking booking = new Booking(userRepository.getReferenceById(userId), event, seats,
-				clock.instant().plus(properties.holdDuration()), holdToken);
+		// PostgreSQL stores microseconds; truncating keeps the in-memory value equal to the stored one.
+		Instant expiresAt = clock.instant().plus(properties.holdDuration()).truncatedTo(ChronoUnit.MICROS);
+		Booking booking = new Booking(userRepository.getReferenceById(userId), event, seats, expiresAt, holdToken);
 		return BookingResponse.from(bookingRepository.save(booking));
 	}
 

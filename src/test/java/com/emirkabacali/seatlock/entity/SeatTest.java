@@ -37,4 +37,14 @@ class SeatTest {
 		assertThatThrownBy(seat::release).isInstanceOf(IllegalStateException.class);
 	}
 
+	@Test
+	void onlyHeldSeatCanBeBooked() {
+		assertThatThrownBy(seat::book).isInstanceOf(IllegalStateException.class);
+
+		seat.hold();
+		seat.book();
+		assertThat(seat.getStatus()).isEqualTo(SeatStatus.BOOKED);
+		assertThatThrownBy(seat::release).isInstanceOf(IllegalStateException.class);
+	}
+
 }

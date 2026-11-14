@@ -1,8 +1,9 @@
 # SeatLock
 
-> **Status: Work in progress.** Venue/event/seat management, JWT authentication,
-> concurrency-safe seat booking and Redis seat holds with expiry are implemented and tested.
-> Payments are still planned — see the [roadmap](#roadmap) for what is actually implemented.
+> **Status: Work in progress.** The booking flow is implemented and tested end to end:
+> catalog management, JWT authentication, concurrency-safe seat booking, Redis seat holds with
+> expiry and idempotent (simulated) payments. Packaging and CI are still planned — see the
+> [roadmap](#roadmap).
 
 SeatLock is an event ticket booking REST API built with Spring Boot. Its core goal is simple
 to state and hard to get right:
@@ -69,6 +70,28 @@ their seats. It selects bookings with `FOR UPDATE SKIP LOCKED`, so rows that are
 by another transaction — or by the same job on another application instance — are skipped
 instead of waited for. Between the end of a hold and the next job run (≤ 30 s), the seat is
 still `HELD` in the database and new bookings for it get `409`.
+
+### Idempotent payments
+
+`POST /api/v1/bookings/{id}/pay` requires an `Idempotency-Key` header. A double-clicked button
+or an automatic client retry must not charge twice:
+
+- The booking row is locked (`SELECT ... FOR UPDATE`), so all attempts for one booking —
+  including concurrent retries — run one after another.
+- If the user already sent this key, the stored result is returned (same status and body) with
+  `Idempotent-Replayed: true`, and nothing is charged.
+- Reusing a key for a different request (other booking or payment method, detected via a
+  SHA-256 request hash) returns `422`.
+- A partial unique index (`UNIQUE (booking_id) WHERE status = 'SUCCEEDED'`) guarantees at the
+  database level that a booking is never paid twice.
+
+Payments are simulated (`SimulatedPaymentGateway`, similar to Stripe test cards):
+`pm_card_declined` and `pm_card_insufficient_funds` fail, any other payment method succeeds.
+A successful payment confirms the booking and marks its seats `BOOKED`; a failed one leaves it
+`PENDING` so the user can retry with a new key until the hold expires.
+
+`PaymentConcurrencyIntegrationTest` sends 10 simultaneous requests with the same key (one
+payment row, identical responses) and with different keys (exactly one success, nine `409`s).
 
 **Trade-offs.** Optimistic locking holds no database locks and rejects losers immediately,
 which suits short transactions and moderate contention. Pessimistic locking serializes access
@@ -186,6 +209,7 @@ Missing or invalid tokens return `401`; insufficient roles return `403`.
 | POST   | `/api/v1/bookings`                | Hold up to 10 seats of an `ON_SALE` event (`PENDING` booking, 409 if a seat is taken) |
 | GET    | `/api/v1/bookings/me`             | List the current user's bookings (paginated)             |
 | GET    | `/api/v1/bookings/{id}`           | Get one of the current user's bookings                   |
+| POST   | `/api/v1/bookings/{id}/pay`       | Pay for a `PENDING` booking (simulated, requires `Idempotency-Key`) |
 | POST   | `/api/v1/bookings/{id}/cancel`    | Cancel a `PENDING` booking and release its seats         |
 
 Errors use the [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem detail format.
@@ -202,12 +226,6 @@ Validation errors list every invalid field:
 }
 ```
 
-### Planned
-
-| Method | Endpoint                          | Description                         |
-|--------|-----------------------------------|-------------------------------------|
-| POST   | `/api/v1/bookings/{id}/pay`       | Pay for a booking (idempotent)      |
-
 ## Roadmap
 
 - [x] Project skeleton, PostgreSQL via Docker Compose, Flyway
@@ -215,7 +233,7 @@ Validation errors list every invalid field:
 - [x] JWT authentication and role-based access
 - [x] Booking with concurrency control (optimistic vs. pessimistic locking)
 - [x] Redis seat holds with expiration
-- [ ] Idempotent payment simulation
+- [x] Idempotent payment simulation
 - [ ] Testcontainers, Dockerfile, CI pipeline, full documentation
 
 ## License

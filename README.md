@@ -1,7 +1,8 @@
 # SeatLock
 
-> **Status: Work in progress.** The project is in its initial setup phase. No application
-> code exists yet — everything below describes the planned scope, not current functionality.
+> **Status: Work in progress.** The application skeleton is in place: it starts, connects to
+> PostgreSQL and applies database migrations. Most features below are still planned — see the
+> [roadmap](#roadmap) for what is actually implemented.
 
 SeatLock is an event ticket booking REST API built with Spring Boot. Its core goal is simple
 to state and hard to get right:
@@ -31,17 +32,45 @@ the double-booking bug, then fixing it.
   conflict errors
 - **API documentation** — OpenAPI / Swagger UI
 
-## Planned tech stack
+## Tech stack
 
 | Area           | Technology                                          |
 |----------------|-----------------------------------------------------|
 | Language       | Java 17                                             |
-| Framework      | Spring Boot 3 (Web, Data JPA, Validation, Security) |
+| Framework      | Spring Boot 4 (Web MVC, Data JPA, Validation, Security) |
 | Database       | PostgreSQL, Flyway migrations                       |
 | Cache / holds  | Redis                                               |
 | Testing        | JUnit 5, Mockito, Spring Boot Test, Testcontainers  |
 | Infrastructure | Docker, Docker Compose, GitHub Actions              |
 | Docs           | Springdoc OpenAPI                                   |
+
+## Getting started
+
+**Prerequisites:** Java 17 and Docker.
+
+```bash
+# 1. Start PostgreSQL (exposed on host port 5433)
+docker compose up -d
+
+# 2. Run the application (Windows: .\mvnw.cmd spring-boot:run)
+./mvnw spring-boot:run
+
+# 3. Check that it is up
+curl http://localhost:8080/actuator/health
+```
+
+The application uses sensible local defaults. To override them (database URL, credentials,
+host port), copy `.env.example` to `.env` for Docker Compose and set the same variables in
+your environment for the application.
+
+### Running the tests
+
+```bash
+./mvnw test
+```
+
+Integration tests use [Testcontainers](https://testcontainers.com/) to start a real PostgreSQL
+instance in Docker, so Docker must be running.
 
 ## Draft API
 
@@ -61,7 +90,7 @@ The API is a draft and may change during development.
 
 ## Roadmap
 
-- [ ] Project skeleton, PostgreSQL via Docker Compose, Flyway
+- [x] Project skeleton, PostgreSQL via Docker Compose, Flyway
 - [ ] Venue / event / seat CRUD with validation and error handling
 - [ ] JWT authentication and role-based access
 - [ ] Booking with concurrency control (optimistic vs. pessimistic locking)

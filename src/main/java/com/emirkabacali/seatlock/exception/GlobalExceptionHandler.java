@@ -10,6 +10,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -46,6 +49,21 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	@ExceptionHandler(BadRequestException.class)
 	ProblemDetail handleBadRequest(BadRequestException ex) {
 		return problem(HttpStatus.BAD_REQUEST, "Bad request", ex.getMessage());
+	}
+
+	/** Missing, invalid or expired token, or wrong login credentials. */
+	@ExceptionHandler(AuthenticationException.class)
+	ProblemDetail handleAuthentication(AuthenticationException ex) {
+		String detail = ex instanceof BadCredentialsException
+				? ex.getMessage()
+				: "Authentication is required to access this resource";
+		return problem(HttpStatus.UNAUTHORIZED, "Unauthorized", detail);
+	}
+
+	/** Authenticated, but the role is not allowed to do this. */
+	@ExceptionHandler(AccessDeniedException.class)
+	ProblemDetail handleAccessDenied(AccessDeniedException ex) {
+		return problem(HttpStatus.FORBIDDEN, "Forbidden", "You do not have permission to perform this action");
 	}
 
 	/** Last line of defence: a database constraint rejected the change (e.g. a unique key). */

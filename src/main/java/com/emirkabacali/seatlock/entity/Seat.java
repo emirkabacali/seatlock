@@ -66,6 +66,26 @@ public class Seat {
 		this.status = SeatStatus.AVAILABLE;
 	}
 
+	public boolean isAvailable() {
+		return status == SeatStatus.AVAILABLE;
+	}
+
+	/** AVAILABLE → HELD while a booking is pending payment. */
+	public void hold() {
+		if (!isAvailable()) {
+			throw new IllegalStateException("Seat " + id + " is " + status + " and cannot be held");
+		}
+		this.status = SeatStatus.HELD;
+	}
+
+	/** HELD → AVAILABLE when a booking is cancelled or expires. */
+	public void release() {
+		if (status != SeatStatus.HELD) {
+			throw new IllegalStateException("Seat " + id + " is " + status + " and cannot be released");
+		}
+		this.status = SeatStatus.AVAILABLE;
+	}
+
 	public Long getId() {
 		return id;
 	}

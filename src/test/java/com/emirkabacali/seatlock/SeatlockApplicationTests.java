@@ -8,18 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@Import(TestcontainersConfiguration.class)
-class SeatlockApplicationTests {
-
-	@Autowired
-	private MockMvc mockMvc;
+class SeatlockApplicationTests extends AbstractIntegrationTest {
 
 	@Autowired
 	private Flyway flyway;
@@ -35,6 +25,13 @@ class SeatlockApplicationTests {
 	void flywayAppliesAllMigrations() {
 		assertThat(flyway.info().applied()).isNotEmpty();
 		assertThat(flyway.info().pending()).isEmpty();
+	}
+
+	@Test
+	void openApiDocumentIsServed() throws Exception {
+		mockMvc.perform(get("/v3/api-docs"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.info.title").value("SeatLock API"));
 	}
 
 }
